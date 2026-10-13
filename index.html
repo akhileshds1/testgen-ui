@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test Generator</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%237c5cff'/><text x='16' y='22' font-size='15' text-anchor='middle' fill='white' font-family='monospace'>&gt;_</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #08090d; --panel: #0f1117; --text: #e6e9f0; --muted: #8790a2; --faint: #545c6e;
+    --line: rgba(255,255,255,.07); --line-2: rgba(255,255,255,.11);
+    --accent: #8b7bff; --accent-2: #3dd6f5; --grad: linear-gradient(135deg, #7c5cff, #3dd6f5);
+    --ok: #3ddc97; --warn: #ffb547; --err: #ff6b7a;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; color: var(--text); font: 14px/1.55 Inter, -apple-system, system-ui, sans-serif;
+         background: radial-gradient(1000px 500px at 15% -15%, rgba(124,92,255,.12), transparent 60%), var(--bg); background-attachment: fixed; }
+  code { font: 12.5px var(--mono); }
+  button { font: inherit; cursor: pointer; }
+  .hidden { display: none !important; }
+
+  /* header */
+  header { display: flex; align-items: center; gap: 12px; padding: 22px 28px 0; max-width: 1440px; margin: auto; }
+  .logo { width: 32px; height: 32px; border-radius: 9px; background: var(--grad); display: grid; place-items: center; font: 600 13px var(--mono); color: #fff; }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header .skill { font: 12px var(--mono); color: var(--faint); }
+  .status { margin-left: auto; display: flex; align-items: center; gap: 8px; font: 12px var(--mono); color: var(--muted); }
+  .status i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .status.running { color: var(--text); } .status.running i { background: var(--accent-2); animation: ping 1.4s infinite; }
+  .status.done i { background: var(--ok); } .status.failed i { background: var(--err); }
+  @keyframes ping { 0% { box-shadow: 0 0 0 0 rgba(61,214,245,.6); } 70%, 100% { box-shadow: 0 0 0 7px rgba(61,214,245,0); } }
+
+  /* layout */
+  main { display: grid; gap: 16px; padding: 18px 28px 40px; max-width: 1440px; margin: auto; grid-template-columns: 340px minmax(0,1fr) 280px; align-items: start; }
+  @media (max-width: 1240px) { main { grid-template-columns: 320px minmax(0,1fr); } .guide { grid-column: 1 / -1; } }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 14px 16px 32px; } header { padding: 16px 16px 0; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
+
+  /* form */
+  label { display: block; font-size: 12.5px; font-weight: 500; color: var(--muted); margin: 18px 0 6px; }
+  label:first-child { margin-top: 0; }
+  input, textarea { width: 100%; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 9px; background: rgba(0,0,0,.3); color: var(--text); font: inherit; }
+  input::placeholder, textarea::placeholder { color: var(--faint); }
+  textarea { min-height: 140px; resize: vertical; }
+  input:focus, textarea:focus, .drop:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(139,123,255,.18); }
+  .drop { border: 1px dashed var(--line-2); border-radius: 9px; padding: 22px 12px; text-align: center; color: var(--faint); font-size: 12.5px; cursor: pointer; background: rgba(0,0,0,.3); }
+  .drop:hover, .drop.over { border-color: var(--accent); color: var(--muted); }
+  .drop img { max-width: 100%; max-height: 170px; border-radius: 6px; display: block; margin: 0 auto 6px; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .row { margin: 18px 0 6px; } .row label { margin: 0; }
+  .linkbtn { background: none; border: 0; padding: 0; color: var(--faint); font-size: 12px; }
+  .linkbtn:hover { color: var(--accent); }
+  .hints { margin-top: 8px; font-size: 11.5px; color: var(--faint); display: flex; gap: 12px; flex-wrap: wrap; }
+  .hint::before { content: "○ "; }
+  .hint.on { color: var(--ok); } .hint.on::before { content: "● "; }
+  .primary { width: 100%; margin-top: 20px; padding: 12px; border: 0; border-radius: 10px; background: var(--grad); color: #fff; font-weight: 600; font-size: 14.5px; }
+  .primary:hover:not(:disabled) { filter: brightness(1.08); }
+  .primary:disabled { opacity: .55; cursor: progress; }
+
+  /* stages */
+  .stages { display: grid; grid-template-columns: repeat(5, 1fr); list-style: none; margin: 4px 0 20px; padding: 0; }
+  .stages li { position: relative; text-align: center; font-size: 12px; color: var(--muted); }
+  .stages li::before { content: ""; position: absolute; top: 13px; left: -50%; width: 100%; height: 1px; background: var(--line-2); }
+  .stages li:first-child::before { display: none; }
+  .stages li.done::before, .stages li.active::before, .stages li.failed::before { background: var(--accent); }
+  .stages i { position: relative; display: grid; place-items: center; width: 26px; height: 26px; margin: 0 auto 8px; border-radius: 50%; font: 500 11.5px var(--mono); font-style: normal; background: var(--panel); border: 1px solid var(--line-2); color: var(--faint); }
+  .stages b { font-weight: 500; }
+  .stages small { display: block; font-size: 10.5px; color: var(--warn); opacity: .8; }
+  .stages li.active { color: var(--text); }
+  .stages li.active i { border-color: transparent; background: var(--grad); color: #fff; box-shadow: 0 0 18px rgba(124,92,255,.55); }
+  .stages li.hitl.active i { background: var(--warn); color: #1a1205; box-shadow: 0 0 18px rgba(255,181,71,.45); }
+  .stages li.done { color: var(--text); }
+  .stages li.done i { font-size: 0; border-color: rgba(61,220,151,.5); }
+  .stages li.done i::after { content: "✓"; font: 700 15px Inter, sans-serif; color: var(--ok); }
+  .stages li.failed i { font-size: 0; border-color: var(--err); }
+  .stages li.failed i::after { content: "✕"; font: 600 12px Inter, sans-serif; color: var(--err); }
+  .stages li.skipped { opacity: .35; }
+
+  /* notices */
+  .notice { display: flex; gap: 10px; align-items: baseline; border-left: 2px solid var(--warn); padding: 8px 12px; margin-bottom: 14px; font-size: 13px; color: #e9d3ae; background: rgba(255,181,71,.06); border-radius: 0 8px 8px 0; }
+  .notice b { color: var(--warn); font-weight: 600; white-space: nowrap; }
+  .notice.bad { border-color: var(--err); color: #f3c0c6; background: rgba(255,107,122,.06); } .notice.bad b { color: var(--err); }
+
+  /* log */
+  .log { position: relative; border: 1px solid var(--line); border-radius: 10px; background: #05060a; }
+  .log .linkbtn { position: absolute; top: 8px; right: 12px; font-family: var(--mono); font-size: 11px; }
+  .term { color: #c9cfdb; padding: 14px 56px 14px 16px; height: 360px; overflow: auto; font: 12.5px/1.65 var(--mono); white-space: pre-wrap; word-break: break-word; }
+  .term .dim { color: #626a7c; }
+  .term .tool { color: #a3b5ff; }
+  .term .err { color: var(--err); }
+  .term .say { color: #f1f3f8; }
+  .term .empty { color: var(--faint); height: 100%; display: grid; place-items: center; text-align: center; white-space: normal; font-family: Inter, sans-serif; font-size: 13px; }
+  .term::-webkit-scrollbar { width: 8px; } .term::-webkit-scrollbar-thumb { background: #1d2230; border-radius: 4px; }
+
+  /* message bar */
+  .chat { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .chat input { flex: 1; }
+  .chat .send { padding: 9px 16px; border: 1px solid var(--line-2); border-radius: 9px; background: rgba(139,123,255,.15); color: var(--text); font-weight: 500; }
+  .chat .send:hover { background: rgba(139,123,255,.28); }
+  .term .you { color: var(--accent-2); }
+
+  /* result */
+  .result { margin-top: 20px; }
+  .result h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+  .result p { color: var(--muted); margin: 0 0 10px; }
+  .files { list-style: none; padding: 0; margin: 0 0 14px; }
+  .files li { display: flex; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; font-size: 12.5px; }
+  .files li.aux { opacity: .5; }
+  .files code { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; cursor: copy; }
+  .files code:hover { color: var(--accent-2); }
+  .files a { color: var(--muted); text-decoration: none; } .files a:hover { color: var(--accent); }
+  .tag { font: 500 10px var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--faint); width: 62px; }
+  .tag.new { color: var(--ok); } .tag.modified { color: var(--accent-2); }
+  .ok { color: var(--ok); } .error { color: var(--err); }
+  details.note { margin-top: 12px; font-size: 13px; color: var(--muted); }
+  details.note summary { cursor: pointer; color: var(--faint); font-size: 12px; }
+  details.note .summary { margin-top: 8px; white-space: pre-wrap; color: #c3c9d6; }
+  .summary code { color: var(--accent-2); }
+  .meta { color: var(--faint); font: 11.5px var(--mono); margin-top: 14px; }
+  .meta code { font-size: 11.5px; cursor: copy; } .meta code:hover { color: var(--accent-2); }
+
+  /* guide */
+  .guide { position: sticky; top: 18px; font-size: 13px; color: var(--muted); }
+  @media (max-width: 1240px) { .guide { position: static; } }
+  .guide h4 { margin: 22px 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+  .guide h4:first-child { margin-top: 0; }
+  .guide ol, .guide ul { margin: 0; padding-left: 18px; }
+  .guide li { margin: 5px 0; }
+  .guide li b { color: var(--text); font-weight: 500; }
+  .guide .you { color: var(--warn); font-size: 11px; }
+  .guide .ex { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: rgba(0,0,0,.3); border: 1px solid var(--line); color: #c3c9d6; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">&gt;_</div>
+  <h1>Test Generator</h1>
+  <span class="skill" title="{{REPO}}">/{{SKILL}}</span>
+  <div class="status" id="status"><i></i><span id="statusText">Ready</span></div>
+</header>
+<main>
+  <form class="card" id="form">
+    <label for="url">Page URL</label>
+    <input id="url" type="url" required placeholder="https://staging.acme.com/profile">
+
+    <label for="env">Environment</label>
+    <input id="env" required list="envs" placeholder="staging">
+    <datalist id="envs"><option>dev</option><option>qa</option><option>staging</option></datalist>
+
+    <label>Annotated screenshot</label>
+    <div class="drop" id="drop" tabindex="0">Drop, paste or click to add</div>
+    <input id="file" type="file" accept="image/*" hidden>
+
+    <div class="row"><label for="brief">Test brief</label><button type="button" class="linkbtn" id="example">Use template</button></div>
+    <textarea id="brief" required placeholder="1. Do this (box 1)&#10;2. Then this (box 2)&#10;Expect: what should happen"></textarea>
+    <div class="hints" id="hints">
+      <span class="hint" data-h="steps">steps</span>
+      <span class="hint" data-h="expect">expected result</span>
+      <span class="hint" data-h="boxes">box refs</span>
+      <span class="hint" data-h="data">test data</span>
+    </div>
+
+    <button class="primary" id="go">Generate test</button>
+  </form>
+
+  <section class="card">
+    <ol class="stages" id="stages">
+      <li data-s="coverage"><i>1</i><b>Coverage</b></li>
+      <li data-s="auth"><i>2</i><b>Auth</b></li>
+      <li data-s="dom" class="hitl"><i>3</i><b>DOM inspect</b><small>you</small></li>
+      <li data-s="write"><i>4</i><b>Write test</b></li>
+      <li data-s="verify" class="hitl"><i>5</i><b>Verify</b><small>you</small></li>
+    </ol>
+
+    <div class="notice hidden" id="domBanner"><b>Your turn</b><span>A browser may open for DOM inspection. Make sure it reaches the page from your screenshot, and help it if it asks.</span></div>
+
+    <div class="log">
+      <button type="button" class="linkbtn" id="copyLog">copy</button>
+      <div class="term" id="term"><div class="empty">Claude's progress will show here.</div></div>
+    </div>
+
+    <form class="chat hidden" id="chat">
+      <input id="msg" autocomplete="off" placeholder="Message Claude — goes straight into the running session">
+      <button class="send">Send</button>
+      <button type="button" class="linkbtn" id="finish" title="End the session. Claude finishes what it's doing first.">Finish</button>
+    </form>
+
+    <div class="result hidden" id="result"></div>
+  </section>
+
+  <aside class="card guide">
+    <h4>How it works</h4>
+    <ol>
+      <li><b>Coverage</b>: looks for existing tests and stops if the flow is already covered</li>
+      <li><b>Auth</b>: logs in to the environment</li>
+      <li><b>DOM inspect</b> <span class="you">you</span>: watch the browser</li>
+      <li><b>Write test</b>: a new file, or extends an existing one</li>
+      <li><b>Verify</b> <span class="you">you</span>: run it in your IDE</li>
+    </ol>
+    <p style="margin:10px 0 0">You can message Claude at any time: while it's working (it picks the message up at its next step) or after it's done. It's the same session, so it keeps all the context. Click <b>Finish</b> when you're happy.</p>
+
+    <h4>Writing a good brief</h4>
+    <ul>
+      <li>One flow per run</li>
+      <li>Number the steps, matching the boxes on your screenshot</li>
+      <li>Say what to check at the end</li>
+      <li>Name the user or data to use</li>
+    </ul>
+    <div class="ex">1. Change Display name (box 1)<br>2. Click Save (box 2)<br>Expect: toast "Profile updated" and the new name in the header<br>Data: default staging user</div>
+
+    <h4>Results</h4>
+    <ul>
+      <li><b>New</b>: a test written from scratch</li>
+      <li><b>Modified</b>: an existing test extended</li>
+      <li><b>No changes</b>: probably already covered, so read Claude's note</li>
+      <li><b>Compiles</b> doesn't mean <b>passes</b>, so always run it</li>
+    </ul>
+  </aside>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const ORDER = ["coverage", "auth", "dom", "write", "verify"];
+let shot = null, cur = -1, toolNames = {}, final = null, skillMissing = false, t0 = 0, timer = null, run = null, turns = 0, started = false;
+
+const fmt = ms => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+function status(kind, text) {
+  $("status").className = "status " + kind;
+  $("statusText").textContent = text;
+}
+function startTimer() {
+  t0 = Date.now();
+  timer = setInterval(() => status("running", `Running · ${fmt(Date.now() - t0)}`), 1000);
+  status("running", "Running · 0:00");
+}
+function resumeTimer() {
+  clearInterval(timer);
+  timer = setInterval(() => status("running", `Running · ${fmt(Date.now() - t0)}`), 1000);
+  status("running", `Running · ${fmt(Date.now() - t0)}`);
+}
+function stopTimer(kind, label) { clearInterval(timer); status(kind, `${label} · ${fmt(Date.now() - t0)}`); }
+
+// ---- remember URL/env per browser (convenience only) ----
+for (const id of ["url", "env"]) {
+  try { $(id).value = localStorage.getItem("tg-" + id) || ""; } catch {}
+  $(id).addEventListener("change", () => { try { localStorage.setItem("tg-" + id, $(id).value); } catch {} });
+}
+
+// ---- brief quality hints ----
+const HINTS = {
+  steps: /(^|\s)(\d+[.)]|step\b|then\b|→)/im,
+  expect: /\b(expect|verify|check|assert|should|see|shows?|toast|redirect)/i,
+  boxes: /\b(box|#\d|annotat|marked|highlight)/i,
+  data: /\b(data|user|account|unique|password|values?)\b/i,
+};
+function updateHints() {
+  const v = $("brief").value;
+  document.querySelectorAll("#hints .hint").forEach(h => h.classList.toggle("on", HINTS[h.dataset.h].test(v)));
+}
+$("brief").addEventListener("input", updateHints);
+$("example").onclick = () => {
+  $("brief").value = "1. <action> (box 1)\n2. <action> (box 2)\nExpect: <what should happen>\nData: <which user / values>";
+  $("brief").focus(); updateHints();
+};
+document.addEventListener("keydown", e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !$("go").disabled) $("form").requestSubmit();
+});
+$("copyLog").onclick = () => navigator.clipboard.writeText($("term").innerText).then(() => {
+  $("copyLog").textContent = "copied"; setTimeout(() => $("copyLog").textContent = "copy log", 1200);
+});
+
+// ---- screenshot input: click, drop, paste ----
+function takeFile(f) {
+  if (!f || !f.type.startsWith("image/")) return;
+  const r = new FileReader();
+  r.onload = () => {
+    shot = { name: f.name || "screenshot.png", data: r.result };
+    $("drop").innerHTML = `<img src="${r.result}" alt="screenshot preview">${esc(shot.name)}`;
+  };
+  r.readAsDataURL(f);
+}
+$("drop").onclick = () => $("file").click();
+$("drop").onkeydown = e => (e.key === "Enter" || e.key === " ") && $("file").click();
+$("file").onchange = e => takeFile(e.target.files[0]);
+$("drop").ondragover = e => { e.preventDefault(); $("drop").classList.add("over"); };
+$("drop").ondragleave = () => $("drop").classList.remove("over");
+$("drop").ondrop = e => { e.preventDefault(); $("drop").classList.remove("over"); takeFile(e.dataTransfer.files[0]); };
+document.onpaste = e => [...e.clipboardData.items].forEach(i => i.kind === "file" && takeFile(i.getAsFile()));
+
+// ---- rendering helpers ----
+const REPO = "{{REPO}}";
+const rel = p => p.startsWith(REPO + "/") ? p.slice(REPO.length + 1) : p;
+// ponytail: just **bold** and `code`; add a markdown lib if summaries get richer
+const md = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>");
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function log(text, cls = "") {
+  const t = $("term"), stick = t.scrollTop + t.clientHeight >= t.scrollHeight - 30;
+  t.insertAdjacentHTML("beforeend", `<div class="${cls}">${esc(text)}</div>`);
+  if (stick) t.scrollTop = t.scrollHeight;
+}
+function setStage(name) {
+  const i = ORDER.indexOf(name);
+  if (i <= cur) return;  // stages only move forward
+  cur = i;
+  document.querySelectorAll("#stages li").forEach((li, j) => {
+    li.classList.toggle("done", j < i);
+    li.classList.toggle("active", j === i);
+  });
+  $("domBanner").classList.toggle("hidden", name !== "dom");
+}
+function finishEarly() {  // stages Claude reached are done, the rest never ran
+  document.querySelectorAll("#stages li").forEach((li, j) => {
+    li.classList.remove("active");
+    li.classList.add(j <= cur ? "done" : "skipped");
+  });
+  $("domBanner").classList.add("hidden");
+}
+
+// ponytail: stages are inferred from which tool Claude calls; add a `STAGE:` print to the skill if this ever guesses wrong
+function classify(name, input) {
+  const cmd = input.command || "";
+  if (name === "Bash" && /inspect_dom/.test(cmd)) return "dom";
+  if (name === "Bash" && /auth/i.test(cmd)) return "auth";
+  if (/^(Write|Edit|MultiEdit)$/.test(name) && !/element_dump/.test(input.file_path || "")) return "write";
+  if (/^(Skill|Read|Grep|Glob)$/.test(name) && cur < 1) return "coverage";
+}
+function describe(name, input) {
+  if (name === "Bash") return `$ ${input.command}`;
+  if (name === "Skill") return `Skill: ${input.skill || input.command || ""}`;
+  return `${name} ${rel(input.file_path || input.pattern || input.path || "")}`.trim();
+}
+
+// ---- one event from the claude stream ----
+function handle(ev) {
+  if (ev.type === "testgen_run") {
+    run = ev;
+    log(`run ${ev.id}`, "dim");
+  } else if (ev.type === "system" && ev.subtype === "init") {
+    if (started) return;  // claude re-sends init with every message in the session
+    started = true;
+    log(`Claude Code started${ev.model ? " · " + ev.model : ""}`, "dim");
+    if (Array.isArray(ev.slash_commands) && !ev.slash_commands.includes("{{SKILL}}")) {
+      skillMissing = true;
+      log("⚠ skill /{{SKILL}} was not found by Claude — check TESTGEN_REPO / TESTGEN_SKILL", "err");
+    }
+  } else if (ev.type === "assistant") {
+    for (const b of ev.message.content) {
+      if (b.type === "text" && b.text.trim()) log(b.text.trim(), "say");
+      if (b.type === "tool_use") {
+        const input = b.input || {};
+        toolNames[b.id] = b.name === "Bash" && /inspect_dom/.test(input.command || "") ? "dom" : b.name;
+        const s = classify(b.name, input);
+        if (s) setStage(s);
+        log(describe(b.name, input), "tool");
+      }
+    }
+  } else if (ev.type === "user" && Array.isArray(ev.message?.content)) {
+    for (const b of ev.message.content) {
+      if (b.type !== "tool_result") continue;
+      const text = Array.isArray(b.content) ? b.content.map(c => c.text || "").join(" ") : String(b.content || "");
+      const first = text.trim().split("\n").slice(0, 3).join("\n    ");
+      if (b.is_error) log(`  ✗ ${first}`, "err");
+      else if (first) log(`  ${first.length > 300 ? first.slice(0, 300) + "…" : first}`, "dim");
+      if (toolNames[b.tool_use_id] === "dom" && !b.is_error) {
+        log("  DOM dump captured.", "dim");
+        $("domBanner").classList.add("hidden");
+        document.querySelector('[data-s="dom"]').classList.replace("active", "done");
+      }
+    }
+  } else if (ev.type === "result") {
+    final = ev;
+    turns += ev.num_turns || 0;  // num_turns restarts per message; total_cost_usd is already a session total
+  } else if (ev.type === "testgen_files") {
+    showResult(ev);
+  } else if (ev.type === "testgen_error") {
+    log(ev.message, "err");
+  } else if (ev.type === "testgen_message") {  // the tester's message, now part of the running session
+    log(`› you: ${ev.text}`, "you");
+    $("result").classList.add("hidden");
+    document.querySelectorAll("#stages li").forEach(li => li.classList.remove("skipped", "failed"));
+    final = null;
+    resumeTimer();
+  } else if (ev.type === "testgen_end") {
+    $("chat").classList.add("hidden");
+    log(`session ended (${ev.reason})`, "dim");
+    if ($("result").classList.contains("hidden")) showResult(ev);
+    $("statusText").textContent += " · ended";
+  }
+}
+
+function showResult({ files, repo }) {
+  const r = $("result");
+  r.classList.remove("hidden");
+  const failed = !final || final.is_error || final.subtype !== "success";
+  const note = final?.result ? `<details class="note"${failed || !files.length ? " open" : ""}><summary>Claude's note</summary><div class="summary">${md(final.result)}</div></details>` : "";
+  const runRef = run ? ` · <code data-copy="${esc(run.dir)}" title="Click to copy the run folder: logs, inputs, screenshot, result">run ${esc(run.id)}</code>` : "";
+  const meta = `<div class="meta">${final ? `${fmt(Date.now() - t0)} · ${turns} turns · $${(final.total_cost_usd ?? 0).toFixed(2)}` : fmt(Date.now() - t0)}${runRef}</div>`;
+
+  if (skillMissing) {
+    stopTimer("failed", "Skill not found");
+    finishEarly();
+    r.innerHTML = `<h2 class="error">Skill /{{SKILL}} not found</h2><p>Check that <code>.claude/skills/{{SKILL}}/SKILL.md</code> exists in this repo, or start the app with <code>TESTGEN_SKILL=&lt;name&gt;</code>.</p>${meta}`;
+    return;
+  }
+  if (failed) {
+    stopTimer("failed", "Failed");
+    $("domBanner").classList.add("hidden");
+    document.querySelector("#stages li.active")?.classList.replace("active", "failed");
+    const why = !final ? "Claude exited without a result. See the log."
+      : final.subtype === "error_max_turns" ? `Hit the ${final.num_turns}-turn limit. The log shows where it got stuck.`
+      : "Claude hit an error. See the log.";
+    r.innerHTML = `<h2 class="error">No test generated</h2><p>${why}</p>${note}${meta}`;
+    return;
+  }
+  if (!files.length) {
+    stopTimer("done", "No changes");
+    finishEarly();
+    r.innerHTML = `<h2>No changes, probably already covered</h2>${note}${meta}`;
+    return;
+  }
+  setStage("verify");
+  stopTimer("done", "Ready to verify");
+  const broken = files.filter(f => f.compile && f.compile !== "ok");
+  const kind = files.some(f => f.status === "modified" && f.path.endsWith(".py")) ? "Existing test extended" : "New test written";
+  const tests = files.filter(f => f.compile), aux = files.filter(f => !f.compile);  // ponytail: .py = test, the rest (element_dump.json…) shown muted
+  r.innerHTML = `
+    <h2>${kind}</h2>
+    ${broken.length ? `<div class="notice bad"><b>Won't compile</b><span>Fix the error below, or generate again.</span></div>` : ""}
+    <ul class="files">${[...tests, ...aux].map(f => `
+      <li class="${f.compile ? "" : "aux"}"><span class="tag ${f.status}">${f.status}</span><code data-copy="${esc(f.path)}" title="Click to copy the full path">${esc(rel(f.path))}</code>
+        ${f.compile === "ok" ? `<span class="ok">compiles</span>` : f.compile ? `<span class="error">${esc(f.compile)}</span>` : ""}
+        ${f.compile ? `<a href="vscode://file${encodeURI(f.path)}">Open ↗</a>` : ""}</li>`).join("")}
+    </ul>
+    <div class="notice"><b>Your turn</b><span>Open it in VS Code or PyCharm and run the test. Something off? Tell Claude in the box above — same session, full context.</span></div>
+    ${note}${meta}`;
+}
+// click-to-copy for file paths and the run folder, whatever the outcome
+$("result").addEventListener("click", e => {
+  const c = e.target.closest("[data-copy]");
+  if (!c) return;
+  navigator.clipboard.writeText(c.dataset.copy).then(() => { const t = c.textContent; c.textContent = "copied ✓"; setTimeout(() => c.textContent = t, 1000); });
+});
+
+// ---- submit ----
+$("form").onsubmit = async e => {
+  e.preventDefault();
+  if (!shot) { $("drop").focus(); $("drop").textContent = "Add the annotated screenshot first"; return; }
+  cur = -1; final = null; toolNames = {}; skillMissing = false; run = null; turns = 0; started = false;
+  document.querySelectorAll("#stages li").forEach(li => li.classList.remove("done", "active", "skipped", "failed"));
+  $("term").innerHTML = ""; $("result").classList.add("hidden"); $("go").disabled = true; $("go").firstChild.textContent = "Session open…";
+  $("chat").classList.remove("hidden"); $("msg").value = "";
+  startTimer();
+  try {
+    const res = await fetch("/generate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: $("url").value, env: $("env").value, brief: $("brief").value,
+                             screenshot: shot.data, screenshot_name: shot.name }),
+    });
+    if (!res.ok) throw new Error((await res.text()).match(/<p>Message: (.*?)<\/p>/)?.[1] || res.statusText);
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+    let buf = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += value;
+      const lines = buf.split("\n"); buf = lines.pop();
+      for (const l of lines) if (l.trim()) { try { handle(JSON.parse(l)); } catch (err) { log(l, "dim"); } }
+    }
+  } catch (err) {
+    log(`Error: ${err.message}`, "err");
+    stopTimer("failed", "Error");
+  } finally {
+    if ($("status").classList.contains("running")) stopTimer("failed", "Stopped");
+    $("go").disabled = false; $("go").firstChild.textContent = "Generate test";
+    $("chat").classList.add("hidden");
+  }
+};
+
+// ---- talk to the running session ----
+async function post(path, body) {
+  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) log(`Error: ${(await res.text()).match(/<p>Message: (.*?)<\/p>/)?.[1] || res.statusText}`, "err");
+}
+$("chat").onsubmit = e => {
+  e.preventDefault();
+  const text = $("msg").value.trim();
+  if (!text || !run) return;
+  $("msg").value = "";
+  post("/message", { run_id: run.id, text });  // shows up in the log via the stream (testgen_message)
+};
+$("finish").onclick = () => run && post("/finish", { run_id: run.id });
+</script>
+</body>
+</html>
