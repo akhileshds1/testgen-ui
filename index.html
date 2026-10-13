@@ -225,7 +225,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const ORDER = ["coverage", "auth", "dom", "write", "verify"];
-let shot = null, cur = -1, toolNames = {}, final = null, skillMissing = false, t0 = 0, timer = null, run = null, turns = 0, started = false;
+let shot = null, cur = -1, toolNames = {}, final = null, skillMissing = false, t0 = 0, timer = null, run = null, turns = 0, started = false, denied = [];
 
 const fmt = ms => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 function status(kind, text) {
@@ -342,7 +342,8 @@ function handle(ev) {
   } else if (ev.type === "system" && ev.subtype === "init") {
     if (started) return;  // claude re-sends init with every message in the session
     started = true;
-    log(`Claude Code started${ev.model ? " · " + ev.model : ""}`, "dim");
+    log(`Claude Code started · ${ev.model || "?"} · permission mode ${ev.permissionMode || "?"}`, "dim");
+    for (const m of ev.mcp_servers || []) if (m.status !== "connected") log(`⚠ MCP server "${m.name}" didn't connect (${m.status}), so its tools aren't available to this run`, "err");
     if (Array.isArray(ev.slash_commands) && !ev.slash_commands.includes("{{SKILL}}")) {
       skillMissing = true;
       log("⚠ skill /{{SKILL}} was not found by Claude — check TESTGEN_REPO / TESTGEN_SKILL", "err");
@@ -374,6 +375,11 @@ function handle(ev) {
   } else if (ev.type === "result") {
     final = ev;
     turns += ev.num_turns || 0;  // num_turns restarts per message; total_cost_usd is already a session total
+    const blocked = [...new Set((ev.permission_denials || []).map(d => d.tool_name))];
+    if (blocked.length) {
+      denied = [...new Set([...denied, ...blocked])];
+      log(`⚠ Claude was blocked from using: ${blocked.join(", ")}. Nobody can approve tools here, so pre-approve them with TESTGEN_ALLOW.`, "err");
+    }
   } else if (ev.type === "testgen_files") {
     showResult(ev);
   } else if (ev.type === "testgen_error") {
@@ -398,6 +404,7 @@ function showResult({ files, repo }) {
   const failed = !final || final.is_error || final.subtype !== "success";
   const note = final?.result ? `<details class="note"${failed || !files.length ? " open" : ""}><summary>Claude's note</summary><div class="summary">${md(final.result)}</div></details>` : "";
   const runRef = run ? ` · <code data-copy="${esc(run.dir)}" title="Click to copy the run folder: logs, inputs, screenshot, result">run ${esc(run.id)}</code>` : "";
+  const blockedNote = denied.length ? `<div class="notice bad"><b>Blocked tools</b><span>Claude wasn't allowed to use ${esc(denied.join(", "))}, so it may have worked around them, which lowers quality. Restart with <code>TESTGEN_ALLOW="${esc(denied.join(" "))}"</code>.</span></div>` : "";
   const meta = `<div class="meta">${final ? `${fmt(Date.now() - t0)} · ${turns} turns · $${(final.total_cost_usd ?? 0).toFixed(2)}` : fmt(Date.now() - t0)}${runRef}</div>`;
 
   if (skillMissing) {
@@ -413,13 +420,13 @@ function showResult({ files, repo }) {
     const why = !final ? "Claude exited without a result. See the log."
       : final.subtype === "error_max_turns" ? `Hit the ${final.num_turns}-turn limit. The log shows where it got stuck.`
       : "Claude hit an error. See the log.";
-    r.innerHTML = `<h2 class="error">No test generated</h2><p>${why}</p>${note}${meta}`;
+    r.innerHTML = `<h2 class="error">No test generated</h2><p>${why}</p>${blockedNote}${note}${meta}`;
     return;
   }
   if (!files.length) {
     stopTimer("done", "No changes");
     finishEarly();
-    r.innerHTML = `<h2>No changes, probably already covered</h2>${note}${meta}`;
+    r.innerHTML = `<h2>No changes, probably already covered</h2>${blockedNote}${note}${meta}`;
     return;
   }
   setStage("verify");
@@ -436,7 +443,7 @@ function showResult({ files, repo }) {
         ${f.compile ? `<a href="vscode://file${encodeURI(f.path)}">Open ↗</a>` : ""}</li>`).join("")}
     </ul>
     <div class="notice"><b>Your turn</b><span>Open it in VS Code or PyCharm and run the test. Something off? Tell Claude in the box above — same session, full context.</span></div>
-    ${note}${meta}`;
+    ${blockedNote}${note}${meta}`;
 }
 // click-to-copy for file paths and the run folder, whatever the outcome
 $("result").addEventListener("click", e => {
@@ -449,7 +456,7 @@ $("result").addEventListener("click", e => {
 $("form").onsubmit = async e => {
   e.preventDefault();
   if (!shot) { $("drop").focus(); $("drop").textContent = "Add the annotated screenshot first"; return; }
-  cur = -1; final = null; toolNames = {}; skillMissing = false; run = null; turns = 0; started = false;
+  cur = -1; final = null; toolNames = {}; skillMissing = false; run = null; turns = 0; started = false; denied = [];
   document.querySelectorAll("#stages li").forEach(li => li.classList.remove("done", "active", "skipped", "failed"));
   $("term").innerHTML = ""; $("result").classList.add("hidden"); $("go").disabled = true; $("go").firstChild.textContent = "Session open…";
   $("chat").classList.remove("hidden"); $("msg").value = "";

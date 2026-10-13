@@ -13,7 +13,11 @@ or when the tab is closed while Claude is idle.
 Drop this folder into your test repo and run:  python3 testgen-ui/app.py
 Optional env: TESTGEN_REPO (default: the git repo this folder sits in),
 TESTGEN_SKILL (default: the only skill in .claude/skills), TESTGEN_MAX_TURNS,
-TESTGEN_IDLE_MIN (default 15), PORT. Start it from the shell/venv your skill's
+TESTGEN_IDLE_MIN (default 15), PORT. To match your terminal session exactly:
+TESTGEN_MODEL (the model you pick with /model), TESTGEN_PERMISSION_MODE (default acceptEdits;
+use your terminal's mode, e.g. auto), TESTGEN_ALLOW (extra tools to pre-approve, space-separated,
+e.g. "mcp__playwright"). Headless runs can't ask you to approve a tool, so anything not
+pre-approved is denied; the UI and result.json list every denied tool. Start it from the shell/venv your skill's
 scripts need (Playwright etc.).
 
 Every run gets its own folder, testgen-ui/runs/<run-id>/ (git-ignored):
@@ -44,6 +48,10 @@ if not SKILL:
 MAX_TURNS = os.environ.get("TESTGEN_MAX_TURNS", "60")
 IDLE_S = float(os.environ.get("TESTGEN_IDLE_MIN", "15")) * 60
 PORT = int(os.environ.get("PORT", "8765"))
+MODEL = os.environ.get("TESTGEN_MODEL", "")
+PERMISSION_MODE = os.environ.get("TESTGEN_PERMISSION_MODE", "acceptEdits")
+ALLOWED = ["Skill", "Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep",
+           "Task", "Agent", "TodoWrite", "WebFetch", "WebSearch"] + os.environ.get("TESTGEN_ALLOW", "").split()
 INDEX = HERE / "index.html"
 RUNS = HERE / "runs"
 RUNS.mkdir(exist_ok=True)
@@ -192,9 +200,10 @@ class Handler(BaseHTTPRequestHandler):
             "--input-format", "stream-json",   # session stays open; each stdin line is a user message
             "--output-format", "stream-json", "--verbose",
             "--max-turns", MAX_TURNS,
-            "--permission-mode", "acceptEdits",
-            "--allowedTools", "Skill", "Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep",
+            "--permission-mode", PERMISSION_MODE,
             "--add-dir", str(run_dir),  # lets Claude read the screenshot even when TESTGEN_REPO is elsewhere
+            *(["--model", MODEL] if MODEL else []),
+            "--allowedTools", *ALLOWED,  # pre-approved: nobody is there to click "Yes"; anything else is denied
         ]
         (run_dir / "input.json").write_text(json.dumps({
             "run_id": run_id, "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "url": url, "env": env,
@@ -209,7 +218,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
         s = Session(run_dir, self.wfile)
-        written, final, session_id, cost_total, turns_total, files = set(), {}, None, 0.0, 0, []
+        written, final, session_id, cost_total, turns_total, files, denied = set(), {}, None, 0.0, 0, [], set()
         with s.events, open(run_dir / "stderr.log", "w") as err:
             s.send({"type": "testgen_run", "id": run_id, "dir": str(run_dir)})
             s.proc = subprocess.Popen(cmd, cwd=REPO, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=err, text=True)
@@ -237,9 +246,10 @@ class Handler(BaseHTTPRequestHandler):
                         final, s.busy = ev, False
                         cost_total = ev.get("total_cost_usd") or cost_total  # already a running total for the session
                         turns_total += ev.get("num_turns") or 0               # this one restarts with every message
+                        denied |= {d.get("tool_name", "?") for d in ev.get("permission_denials") or []}
                         files = changed_files(before, written)
                         s.send({"type": "testgen_files", "repo": str(REPO), "files": files})
-                        write_result(run_dir, run_id, session_id, started, s, final, cost_total, turns_total, files)
+                        write_result(run_dir, run_id, session_id, started, s, final, cost_total, turns_total, files, denied)
                         if not s.browser_open:
                             s.finish("tab closed")  # nobody left to answer
                         elif not s.ended:
@@ -258,7 +268,7 @@ class Handler(BaseHTTPRequestHandler):
             if s.proc.returncode:
                 s.send({"type": "testgen_error", "message": (run_dir / "stderr.log").read_text()[-2000:]})
             s.send({"type": "testgen_end", "reason": s.ended, "files": files})
-        write_result(run_dir, run_id, session_id, started, s, final, cost_total, turns_total, files)
+        write_result(run_dir, run_id, session_id, started, s, final, cost_total, turns_total, files, denied)
 
 
 def changed_files(before, written):
@@ -271,14 +281,14 @@ def changed_files(before, written):
             for p, st in sorted(changed.items()) if not p.startswith(str(RUNS))]
 
 
-def write_result(run_dir, run_id, session_id, started, s, final, cost_total, turns_total, files):
+def write_result(run_dir, run_id, session_id, started, s, final, cost_total, turns_total, files, denied):
     (run_dir / "result.json").write_text(json.dumps({
         "run_id": run_id, "session_id": session_id, "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "session": "ended: " + s.ended if s.ended else "open",
         "duration_s": round(time.time() - started, 1), "exit_code": s.proc.poll(),
         "outcome": final.get("subtype", "no result"), "turns_total": turns_total,
         "cost_usd_total": round(cost_total, 4), "claude_summary": final.get("result"),
-        "files": files, "browser_stayed_open": s.browser_open,
+        "files": files, "permission_denials": sorted(denied), "browser_stayed_open": s.browser_open,
     }, indent=2))
 
 

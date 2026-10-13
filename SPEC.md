@@ -99,6 +99,28 @@ python3 testgen-ui/app.py          # open http://localhost:8765
 | `TESTGEN_SKILL` | the only skill in `<REPO>/.claude/skills/*/SKILL.md` | Slash-command name. If there are 0 or several skills and none is set, startup exits and lists the choices. |
 | `TESTGEN_MAX_TURNS` | `60` | Passed as `--max-turns`; caps a stuck run |
 | `TESTGEN_IDLE_MIN` | `15` | Minutes after a turn ends with no tester message before the session closes itself |
+| `TESTGEN_MODEL` | *(your default)* | Passed as `--model`. Set it to the model you choose with `/model` in the terminal, otherwise the two sessions use different models. |
+| `TESTGEN_PERMISSION_MODE` | `acceptEdits` | Passed as `--permission-mode`. Match your terminal's mode (shown in its status line or in `/status`). `auto` approves routine actions and blocks risky ones. `bypassPermissions` allows everything with no checks. |
+| `TESTGEN_ALLOW` | *(none)* | Extra tools to pre-approve, space-separated, added to the built-in list (§6). Example: `TESTGEN_ALLOW="mcp__playwright"` pre-approves every tool of the `playwright` MCP server. |
+
+### Matching terminal quality
+A headless run can't ask anyone to approve a tool. **Any tool that isn't pre-approved is denied**, and Claude quietly works around it, which is the most likely cause of "the terminal gives better results". The app shows this, so you don't have to guess:
+- The log's first line shows the **model** and **permission mode**; compare them with your terminal's `/status`.
+- **MCP servers that didn't connect** are logged in red; compare with your terminal's `/mcp`.
+- **Blocked tools** are logged in red after each turn, shown as a "Blocked tools" notice with the exact `TESTGEN_ALLOW=…` to restart with, and recorded in `result.json` → `permission_denials`.
+
+Ways to allow more, from safest to loosest:
+1. `TESTGEN_ALLOW="<the tools shown as blocked>"`.
+2. Add the tools to `permissions.allow` in the repo's `.claude/settings.json`. The terminal and the app both read it, so they stay the same.
+3. `TESTGEN_PERMISSION_MODE=auto`.
+4. `TESTGEN_PERMISSION_MODE=bypassPermissions`: no checks at all. Use it only on a tester's own laptop and a trusted repo. Organisations can disable it centrally.
+
+To check an existing run:
+```bash
+jq -c 'select(.subtype=="init") | {model, permissionMode, mcp: [.mcp_servers[]? | "\(.name):\(.status)"]}' runs/<id>/events.ndjson | head -1
+jq -r 'select(.type=="result") | .permission_denials[]?.tool_name' runs/<id>/events.ndjson | sort -u
+```
+Also not the cause: memory and `CLAUDE.md`. Headless runs load them, and `init.memory_paths` lists the memory files that were loaded.
 | `PORT` | `8765` | Binds to 127.0.0.1 only |
 
 Prerequisites:
@@ -141,7 +163,7 @@ On success: **200**, `Content-Type: application/x-ndjson`, streamed until the **
 | … | `user` | claude | `message.content[]` with `tool_result` blocks (`{tool_use_id, content, is_error}`) |
 | any time | `testgen_message` | app | `{text}`: a tester message, logged the moment it is sent into the session |
 | … | `rate_limit_event`, others | claude | Ignored by the UI; still logged |
-| end of turn | `result` | claude | `subtype` (`success`, `error_max_turns`, `error_during_execution`, …), `is_error`, `result` (final text). **`num_turns` restarts with every message**, while **`total_cost_usd` is already a running total for the session**. Add up turns; never add up cost. |
+| end of turn | `result` | claude | `permission_denials` (`[{tool_name, tool_use_id, tool_input}]`, shown as "Blocked tools"), `subtype` (`success`, `error_max_turns`, `error_during_execution`, …), `is_error`, `result` (final text). **`num_turns` restarts with every message**, while **`total_cost_usd` is already a running total for the session**. Add up turns; never add up cost. |
 | end of turn | `testgen_files` | app | `{repo, files: [{path, status, compile}]}` relative to the state before the *first* turn; see §8 |
 | end of session | `testgen_error` | app | Only if claude exited non-zero: `{message}` = last 2000 characters of stderr |
 | end of session | `testgen_end` | app | `{reason, files}`. `reason` is one of `finished by tester`, `idle timeout`, `tab closed`, `claude exited` |
@@ -182,9 +204,11 @@ Test brief: <brief>
 claude -p --input-format stream-json      # session stays open; every stdin line is a user message (the first is the prompt)
   --output-format stream-json --verbose     # one JSON event per line (--verbose is required with -p for stream-json)
   --max-turns $TESTGEN_MAX_TURNS            # runaway guard
-  --permission-mode acceptEdits             # nobody is there to approve file edits
-  --allowedTools Skill Bash Read Write Edit MultiEdit Glob Grep   # pre-approved; anything else gets denied, not prompted
+  --permission-mode $TESTGEN_PERMISSION_MODE  # default acceptEdits; nobody is there to approve anything
   --add-dir <run folder>                    # lets Claude read the screenshot even if TESTGEN_REPO is elsewhere
+  [--model $TESTGEN_MODEL]                  # only if set
+  --allowedTools Skill Bash Read Write Edit MultiEdit Glob Grep Task Agent TodoWrite WebFetch WebSearch $TESTGEN_ALLOW
+                                            # pre-approved; anything else is DENIED, not prompted (see §4 "Matching terminal quality")
 cwd = REPO, stdin = pipe (stream-json user messages), stderr → runs/<id>/stderr.log
 ```
 A stdin line looks like this:
@@ -214,7 +238,7 @@ Run ID: `YYYYMMDD-HHMMSS-xxxx` (local time plus 4 random hex characters). The wh
 | `screenshot.<ext>` | before Claude starts | The upload, renamed; extension kept, `.png` if missing |
 | `events.ndjson` | as events arrive | Every streamed line, including the `testgen_*` events and the tester's messages, so it replays exactly what the browser saw |
 | `stderr.log` | during the run | Claude's stderr |
-| `result.json` | after every turn and at session end | `run_id, session_id, updated_at, session` (`open` or `ended: <reason>`), `duration_s, exit_code, outcome` (the latest result `subtype`, or `"no result"`), `turns_total, cost_usd_total, claude_summary, files, browser_stayed_open` |
+| `result.json` | after every turn and at session end | `run_id, session_id, updated_at, session` (`open` or `ended: <reason>`), `duration_s, exit_code, outcome` (the latest result `subtype`, or `"no result"`), `turns_total, cost_usd_total, claude_summary, files, permission_denials` (tool names, all turns), `browser_stayed_open` |
 
 Inspecting a run:
 ```bash
@@ -304,6 +328,8 @@ The coverage outcome maps like this:
 - **`runs/` never appears** in `git status` or in changed files.
 - **Skills outside the repo:** `--plugin-dir <dir>`, where `<dir>/.claude-plugin/plugin.json` contains `{"name":"testgen"}` and `<dir>/skills/<folder>` is the skill (a symlink works), exposes `/testgen:<folder>`. The **folder name**, not the frontmatter `name`, decides the command. `--add-dir` does **not** load skills. Not implemented, because the skill lives in the repo.
 
+**Seen in the target repo:** the first real runs gave worse results than the terminal. The diagnostics in §4 ("Matching terminal quality") were added to find the cause; check `permission_denials`, the model and MCP status before changing anything else.
+
 **Not verified: the real skill and scripts.** First things to check in the target repo:
 1. the skill parses the four-line prompt (§6);
 2. `inspect_dom.py` and the auth script never read stdin;
@@ -379,6 +405,7 @@ Ordered by value for effort. Each item says **where** the change goes.
 ### Out of scope (proposals that conflict with §0–§1)
 - Splitting the run into separate LLM calls per stage, or "vision model then codegen model".
 - Re-implementing the coverage, auth or DOM steps in `app.py`.
+- "Fixing" quality by injecting memory files, CLAUDE.md or extra system prompts. Headless runs already load them. Fix denied tools, model and MCP differences first (§4).
 - Spawning a new Claude process per tester message. Messages go into the live session (§5, `/message`).
 - Switching to a small or local model to save cost. Fix cost with caps, prompt quality and fewer retries instead.
 - Adding a framework, a database or a build step to the frontend.
